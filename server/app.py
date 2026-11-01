@@ -1,100 +1,106 @@
 
-#!/usr/bin/env python3
-
-from flask import Flask, jsonify
-from flask_migrate import Migrate
-
-from models import db, Event, Session, Speaker, Bio
+from flask import Flask, jsonify, request
 
 app = Flask(__name__)
 
-app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///app.db"
-app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-app.json.compact = False
 
-migrate = Migrate(app, db)
-db.init_app(app)
+# Event class
+class Event:
+    def __init__(self, id, title):
+        self.id = id
+        self.title = title
 
-
-@app.route('/events')
-def get_events():
-    events = Event.query.all()
-
-    return jsonify([
-        {
-            "id": event.id,
-            "name": event.name,
-            "location": event.location
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "title": self.title
         }
-        for event in events
-    ]), 200
 
 
-@app.route('/events/<int:id>/sessions')
-def get_event_sessions(id):
-    event = Event.query.get(id)
+# In-memory events list
+events = [
+    Event(1, "Tech Meetup"),
+    Event(2, "Python Workshop")
+]
 
-    if not event:
+
+# Helper function to find an event
+def find_event(event_id):
+    for event in events:
+        if event.id == event_id:
+            return event
+    return None
+
+
+# HOME ROUTE
+@app.route("/", methods=["GET"])
+def home():
+    return jsonify({"message": "Welcome to the Events API"}), 200
+
+
+# GET ALL EVENTS
+@app.route("/events", methods=["GET"])
+def get_events():
+    return jsonify([event.to_dict() for event in events]), 200
+
+
+# GET ONE EVENT
+@app.route("/events/<int:event_id>", methods=["GET"])
+def get_event(event_id):
+    event = find_event(event_id)
+
+    if event is None:
         return jsonify({"error": "Event not found"}), 404
 
-    return jsonify([
-        {
-            "id": session.id,
-            "title": session.title,
-            "start_time": session.start_time.isoformat()
-        }
-        for session in event.sessions
-    ]), 200
+    return jsonify(event.to_dict()), 200
 
 
-@app.route('/speakers')
-def get_speakers():
-    speakers = Speaker.query.all()
+# CREATE EVENT
+@app.route("/events", methods=["POST"])
+def create_event():
+    data = request.get_json()
 
-    return jsonify([
-        {
-            "id": speaker.id,
-            "name": speaker.name
-        }
-        for speaker in speakers
-    ]), 200
+    if not data or not data.get("title"):
+        return jsonify({"error": "Title is required"}), 400
 
+    new_id = max([event.id for event in events], default=0) + 1
 
-@app.route('/speakers/<int:id>')
-def get_speaker(id):
-    speaker = Speaker.query.get(id)
+    new_event = Event(new_id, data["title"])
+    events.append(new_event)
 
-    if not speaker:
-        return jsonify({"error": "Speaker not found"}), 404
-
-    bio_text = speaker.bio.bio_text if speaker.bio else "No bio available"
-
-    return jsonify({
-        "id": speaker.id,
-        "name": speaker.name,
-        "bio_text": bio_text
-    }), 200
+    return jsonify(new_event.to_dict()), 201
 
 
-@app.route('/sessions/<int:id>/speakers')
-def get_session_speakers(id):
-    session = Session.query.get(id)
+# UPDATE EVENT
+@app.route("/events/<int:event_id>", methods=["PATCH"])
+def update_event(event_id):
+    event = find_event(event_id)
 
-    if not session:
-        return jsonify({"error": "Session not found"}), 404
+    if event is None:
+        return jsonify({"error": "Event not found"}), 404
 
-    return jsonify([
-        {
-            "id": speaker.id,
-            "name": speaker.name,
-            "bio_text": (
-                speaker.bio.bio_text
-                if speaker.bio else "No bio available"
-            )
-        }
-        for speaker in session.speakers
-    ]), 200
+    data = request.get_json()
+
+    if not data or not data.get("title"):
+        return jsonify({"error": "Title is required"}), 400
+
+    event.title = data["title"]
+
+    return jsonify(event.to_dict()), 200
 
 
-if __name__ == '__main__':
-    app.run(port=5555, debug=True)
+# DELETE EVENT
+@app.route("/events/<int:event_id>", methods=["DELETE"])
+def delete_event(event_id):
+    event = find_event(event_id)
+
+    if event is None:
+        return jsonify({"error": "Event not found"}), 404
+
+    events.remove(event)
+
+    return "", 204
+
+
+if __name__ == "__main__":
+    app.run(debug=True)
