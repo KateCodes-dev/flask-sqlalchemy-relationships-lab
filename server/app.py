@@ -1,106 +1,108 @@
 
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify
+from flask_migrate import Migrate
+
+from models import db, Event, Session, Speaker, Bio
+
 
 app = Flask(__name__)
 
+app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///eventwise.db"
+app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
-# Event class
-class Event:
-    def __init__(self, id, title):
-        self.id = id
-        self.title = title
-
-    def to_dict(self):
-        return {
-            "id": self.id,
-            "title": self.title
-        }
+db.init_app(app)
+migrate = Migrate(app, db)
 
 
-# In-memory events list
-events = [
-    Event(1, "Tech Meetup"),
-    Event(2, "Python Workshop")
-]
-
-
-# Helper function to find an event
-def find_event(event_id):
-    for event in events:
-        if event.id == event_id:
-            return event
-    return None
-
-
-# HOME ROUTE
-@app.route("/", methods=["GET"])
-def home():
-    return jsonify({"message": "Welcome to the Events API"}), 200
-
-
-# GET ALL EVENTS
+# GET all events
 @app.route("/events", methods=["GET"])
 def get_events():
-    return jsonify([event.to_dict() for event in events]), 200
+    events = Event.query.all()
+
+    return jsonify([
+        {
+            "id": event.id,
+            "name": event.name,
+            "location": event.location
+        }
+        for event in events
+    ]), 200
 
 
-# GET ONE EVENT
-@app.route("/events/<int:event_id>", methods=["GET"])
-def get_event(event_id):
-    event = find_event(event_id)
-
-    if event is None:
-        return jsonify({"error": "Event not found"}), 404
-
-    return jsonify(event.to_dict()), 200
-
-
-# CREATE EVENT
-@app.route("/events", methods=["POST"])
-def create_event():
-    data = request.get_json()
-
-    if not data or not data.get("title"):
-        return jsonify({"error": "Title is required"}), 400
-
-    new_id = max([event.id for event in events], default=0) + 1
-
-    new_event = Event(new_id, data["title"])
-    events.append(new_event)
-
-    return jsonify(new_event.to_dict()), 201
-
-
-# UPDATE EVENT
-@app.route("/events/<int:event_id>", methods=["PATCH"])
-def update_event(event_id):
-    event = find_event(event_id)
+# GET all sessions for an event
+@app.route("/events/<int:id>/sessions", methods=["GET"])
+def get_event_sessions(id):
+    event = Event.query.get(id)
 
     if event is None:
         return jsonify({"error": "Event not found"}), 404
 
-    data = request.get_json()
+    return jsonify([
+        {
+            "id": session.id,
+            "title": session.title,
+            "start_time": session.start_time.isoformat()
+        }
+        for session in event.sessions
+    ]), 200
 
-    if not data or not data.get("title"):
-        return jsonify({"error": "Title is required"}), 400
 
-    event.title = data["title"]
+# GET all speakers
+@app.route("/speakers", methods=["GET"])
+def get_speakers():
+    speakers = Speaker.query.all()
 
-    return jsonify(event.to_dict()), 200
+    return jsonify([
+        {
+            "id": speaker.id,
+            "name": speaker.name
+        }
+        for speaker in speakers
+    ]), 200
 
 
-# DELETE EVENT
-@app.route("/events/<int:event_id>", methods=["DELETE"])
-def delete_event(event_id):
-    event = find_event(event_id)
+# GET one speaker with their bio
+@app.route("/speakers/<int:id>", methods=["GET"])
+def get_speaker(id):
+    speaker = Speaker.query.get(id)
 
-    if event is None:
-        return jsonify({"error": "Event not found"}), 404
+    if speaker is None:
+        return jsonify({"error": "Speaker not found"}), 404
 
-    events.remove(event)
+    bio_text = (
+        speaker.bio.bio_text
+        if speaker.bio
+        else "No bio available"
+    )
 
-    return "", 204
+    return jsonify({
+        "id": speaker.id,
+        "name": speaker.name,
+        "bio_text": bio_text
+    }), 200
+
+
+# GET all speakers for a session
+@app.route("/sessions/<int:id>/speakers", methods=["GET"])
+def get_session_speakers(id):
+    session = Session.query.get(id)
+
+    if session is None:
+        return jsonify({"error": "Session not found"}), 404
+
+    return jsonify([
+        {
+            "id": speaker.id,
+            "name": speaker.name,
+            "bio_text": (
+                speaker.bio.bio_text
+                if speaker.bio
+                else "No bio available"
+            )
+        }
+        for speaker in session.speakers
+    ]), 200
 
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(port=5555, debug=True)
